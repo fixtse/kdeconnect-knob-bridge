@@ -1,0 +1,97 @@
+blueprint:
+  name: "fixtse · KDE Connect notifications on knob"
+  author: fixtse
+  description: >-
+    Share phone notifications and images with an OpenNextion ESPHome knob using
+    the fixtse KDE Connect desktop bridge. Phone removals clear only the matching
+    popup. The desktop settings page controls apps and timeout (30 seconds by
+    default; 0 disables the timeout). Create one Text helper with maximum length
+    255, select it below, and save. Advanced defaults match the example bridge
+    topic and the onx2424g013_dbbc54 knob; change them for your installation.
+    Use a separate helper for each knob. Requires the image-capable show_message
+    and dismiss_message ESPHome actions, and a configured MQTT bridge.
+  domain: automation
+  source_url: https://github.com/fixtse/kdeconnect-knob-bridge/blob/main/blueprints/automation/kdeconnect_knob_notifications.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    active_notification:
+      name: Active notification Text helper
+      description: >-
+        Create a Text helper in Settings → Devices & services → Helpers with
+        maximum length 255. Select it here; its entity ID can have any name.
+        This tracks which notification may be dismissed.
+      selector:
+        entity:
+          filter:
+            - domain: input_text
+    connection:
+      name: Connection settings
+      description: Change these only if your bridge topic or knob name differs.
+      collapsed: true
+      input:
+        mqtt_topic:
+          name: Bridge MQTT topic
+          description: Must match mqtt.topic in the desktop bridge config.toml.
+          default: desktop/knob/notification
+          selector:
+            text: {}
+        knob_prefix:
+          name: Knob action prefix
+          description: >-
+            The part between esphome. and _show_message in the knob's action name.
+            For esphome.onx2424g013_dbbc54_show_message use onx2424g013_dbbc54.
+          default: onx2424g013_dbbc54
+          selector:
+            text: {}
+        phone_device_id:
+          name: Phone device ID (optional)
+          description: Leave empty to accept any phone forwarded on this topic.
+          default: ""
+          selector:
+            text: {}
+variables:
+  active_notification: !input active_notification
+  knob_prefix: !input knob_prefix
+  phone_device_id: !input phone_device_id
+triggers:
+  - trigger: mqtt
+    topic: !input mqtt_topic
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.payload_json is mapping
+         and trigger.payload_json.get('kind') in ['notification', 'dismiss', 'dismiss_device']
+         and trigger.payload_json.get('device_id', '') | length > 0
+         and (phone_device_id == '' or trigger.payload_json.get('device_id') == phone_device_id)
+         and 0 <= as_timestamp(now()) - (trigger.payload_json.get('timestamp', 0) | int(0)) < 30 }}
+actions:
+  - variables:
+      event: "{{ trigger.payload_json }}"
+      key: "{{ trigger.payload_json.device_id ~ '/' ~ trigger.payload_json.get('notification_id', '') }}"
+  - choose:
+      - conditions: "{{ event.kind == 'notification' and event.get('message', '') | length > 0 }}"
+        sequence:
+          - action: "{{ 'esphome.' ~ knob_prefix ~ '_show_message' }}"
+            data:
+              title: "{{ event.title }}"
+              message: "{{ event.message }}"
+              image_url: "{{ event.get('image_url', '') }}"
+              timeout_seconds: "{{ event.get('timeout_seconds', 30) | int(30) }}"
+          - action: input_text.set_value
+            target:
+              entity_id: !input active_notification
+            data:
+              value: "{{ key }}"
+      - conditions: >-
+          {{ (event.kind == 'dismiss' and states(active_notification) == key)
+             or (event.kind == 'dismiss_device' and states(active_notification).startswith(event.device_id ~ '/')) }}
+        sequence:
+          - action: "{{ 'esphome.' ~ knob_prefix ~ '_dismiss_message' }}"
+          - action: input_text.set_value
+            target:
+              entity_id: !input active_notification
+            data:
+              value: ""
+mode: queued
+max: 32

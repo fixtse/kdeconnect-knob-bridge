@@ -14,6 +14,8 @@ Works with Niri/Wayland/Noctalia and other Linux desktop sessions.
 - Includes a local app-selection UI with saved choices and a pause switch.
 - Does not replay existing notifications on startup or dismiss notifications on the phone.
 
+[![Import fixtse blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffixtse%2Fkdeconnect-knob-bridge%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fkdeconnect_knob_notifications.yaml)
+
 ## Requirements
 
 Python 3.11+, PyGObject/Gio, KDE Connect running in your desktop user session,
@@ -44,11 +46,15 @@ address, knob client IP and KDE cache directory. Set `images.enabled = false` fo
 text only. `include_apps` and `exclude_apps` match app names exactly. Silent
 notifications are skipped by default; set `ignore_silent = false` to include them.
 
-Create a Text helper named `input_text.knob_notification_active` (maximum length 255),
-or use the YAML helper example in the automation file. Then add
-`examples/home-assistant-automation.yaml` in the HA automation editor, replacing
-the ESPHome action name and MQTT topic. For file-managed HA installations, back up
-and validate the configuration before reloading automations. Enable the service:
+In Home Assistant, create a **Text** helper with **maximum length 255** in
+**Settings → Devices & services → Helpers**. Its name can be anything.
+Click the import button above, select **fixtse · KDE Connect notifications on knob**,
+create an automation, select your Text helper and save. Only the helper is required.
+Under **Connection settings**, change the MQTT topic or knob action prefix if they
+differ from the defaults. Do not enable both the blueprint and the manual
+notification automation for the same knob.
+
+Enable the desktop service:
 
 ```sh
 cp examples/kdeconnect-knob-bridge.service ~/.config/systemd/user/
@@ -98,14 +104,51 @@ popup, HA cannot identify that replacement and a later phone removal may clear i
 For shared reminder displays, clear `input_text.knob_notification_active` before
 showing a non-phone reminder, or route all reminders through a single owner script.
 
+## fixtse Home Assistant blueprint
+
+[![Import fixtse blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffixtse%2Fkdeconnect-knob-bridge%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fkdeconnect_knob_notifications.yaml)
+
+[View the fixtse blueprint](blueprints/automation/kdeconnect_knob_notifications.yaml).
+The button opens the import dialog in your Home Assistant. Create one Text helper
+with a maximum length of 255, then select it in the blueprint form. You do not
+need to create scripts or edit the automation YAML. Use a different helper for
+each knob. Keep your existing desktop bridge and MQTT integration configured.
+
+The optional **Connection settings** section defaults to MQTT topic
+`desktop/knob/notification` and knob action prefix `onx2424g013_dbbc54`.
+Set these to your own values if needed; the optional phone ID restricts which
+phone can trigger the automation. Your desktop settings page continues to control
+app sharing and the exact timeout in seconds. Phone removal and timeout work
+together, and clearing an older notification never clears a newer bridge popup.
+
+For a YAML-managed installation, this is the complete automation instance after
+importing the blueprint (replace the helper and connection settings as needed):
+
+```yaml
+alias: Phone notifications on knob
+use_blueprint:
+  path: fixtse/kdeconnect_knob_notifications.yaml
+  input:
+    active_notification: input_text.knob_notification_active
+    mqtt_topic: desktop/knob/notification
+    knob_prefix: onx2424g013_dbbc54
+```
+
+If the import button cannot find your instance, set it at
+[My Home Assistant](https://my.home-assistant.io/) or import the blueprint's GitHub
+file URL under **Settings → Automations & scenes → Blueprints → Import blueprint**.
+Use **Re-import blueprint** to fetch future updates. Disable the old manual
+notification automation when switching, so each event is handled once.
+
 ## Home Assistant automation examples
 
 Replace the ESPHome device prefix and MQTT topic with your own. The topic in the
 examples is `desktop/knob/notification`; use the same topic in `config.toml`.
-These examples use the image-capable `show_message` action, even for text-only
+Use the blueprint above for the easiest setup; the manual automation below is an
+alternative, not a second automation to enable alongside it. These examples use the image-capable `show_message` action, even for text-only
 popups, so `image_url` is always supplied (empty for text only).
 
-### Forward phone notifications and sync dismissal
+### Manual alternative: forward phone notifications and sync dismissal
 
 Create this helper in `configuration.yaml` (merge it into an existing
 `input_text:` section if you have one), or create a Text helper with the same
