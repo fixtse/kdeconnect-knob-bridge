@@ -10,6 +10,8 @@ Works with Niri/Wayland/Noctalia and other Linux desktop sessions.
 - Copies available notification PNGs into a bounded in-memory cache. A small HTTP
   endpoint supplies an `image_url` the ESP32 can download.
 - Sends title, message, image_url and timeout_seconds to the knob's `show_message`.
+- Clears the matching knob popup when KDE Connect removes a phone notification.
+- Includes a local app-selection UI with saved choices and a pause switch.
 - Does not replay existing notifications on startup or dismiss notifications on the phone.
 
 ## Requirements
@@ -42,7 +44,9 @@ address, knob client IP and KDE cache directory. Set `images.enabled = false` fo
 text only. `include_apps` and `exclude_apps` match app names exactly. Silent
 notifications are skipped by default; set `ignore_silent = false` to include them.
 
-Add `examples/home-assistant-automation.yaml` in the HA automation editor, replacing
+Create a Text helper named `input_text.knob_notification_active` (maximum length 255),
+or use the YAML helper example in the automation file. Then add
+`examples/home-assistant-automation.yaml` in the HA automation editor, replacing
 the ESPHome action name and MQTT topic. For file-managed HA installations, back up
 and validate the configuration before reloading automations. Enable the service:
 
@@ -57,6 +61,39 @@ Allow the knob to reach TCP 18767 on the desktop. The default service expects th
 checkout under `~/.local/share/kdeconnect-knob-bridge`; adjust WorkingDirectory
 if installed elsewhere. Run as the desktop user, not root or inside HA's container.
 Foreground: `python3 -m knob_bridge --config /path/to/config.toml`.
+
+## Choose apps and sync dismissal
+
+Open **http://127.0.0.1:18769** on the desktop running the bridge. For an app-menu
+shortcut, copy `examples/kdeconnect-knob-settings.desktop` to
+`~/.local/share/applications/`. The settings page
+lets you pause sharing, choose each app, set whether new apps share by default,
+include silent notifications and change the popup duration. Choose **Until cleared**
+to keep a popup until your phone clears it or you press the knob. Settings apply
+immediately without restarting the bridge. Blocking the currently displayed app
+also clears that bridge popup.
+
+Apps are discovered from active KDE Connect notifications on startup and as new
+notifications arrive. Startup discovery does not forward old notifications. You can
+also add an exact app name manually. Only app names and preferences are saved in
+`preferences.json` alongside `config.toml`; notification messages and pictures are
+not stored. Once preferences exist, edit sharing choices in the UI rather than
+TOML. Settings listen only on loopback and are not exposed on the image server;
+for a remote desktop, use SSH local forwarding of TCP 18769. The page checks Host,
+Origin and a per-process request token for settings requests.
+
+KDE Connect sends removal signals when Android removes a notification. The bridge
+forwards those removals, and HA compares the notification ID before dismissing the
+popup: clearing an old notification cannot clear a newer one. Device-wide clears
+are matched to that phone. Merely viewing a message cannot be detected if its app
+keeps the Android notification. This is the same notification lifecycle available
+to the desktop. Pressing the knob does not dismiss anything on your phone.
+
+The HA helper tracks the most recent bridge popup. The knob currently exposes no
+message ID in its dismiss action: if an unrelated automation replaces a bridge
+popup, HA cannot identify that replacement and a later phone removal may clear it.
+For shared reminder displays, clear `input_text.knob_notification_active` before
+showing a non-phone reminder, or route all reminders through a single owner script.
 
 ## Images and behavior
 
@@ -76,7 +113,7 @@ to disk by the bridge.
 
 The knob retains its own rules: press dismisses, turn scrolls, timers take priority,
 and only the newest notification is kept. HA ignores messages older than 30 seconds.
-The bridge sends only new signals; KDE may resend notifications after reconnecting,
+The bridge forwards only new signals; KDE may resend notifications after reconnecting,
 and identical updates are suppressed for two minutes within each bridge process.
 Failures are logged without content and do not trigger unbounded retries. A later
 KDE notification update can retry failed MQTT publication.
@@ -92,7 +129,8 @@ a session bus and MQTT clients. No application ports are forwarded automatically
 ```
 
 Tests cover UTF-8 clipping, filters, deduplication, bounded/expiring image paths,
-D-Bus signal routing, config validation and non-retained MQTT publication. Real
+D-Bus signal routing, removal identity matching, persistent app preferences, settings
+HTTP authorization, config validation and non-retained MQTT publication. Real
 phone delivery needs a desktop KDE Connect session; Codespaces cannot receive
 your phone's desktop session signals.
 

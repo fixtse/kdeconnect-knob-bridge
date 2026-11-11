@@ -1,5 +1,14 @@
+# Create a Text helper (max length 255) named input_text.knob_notification_active.
+# Or add to configuration.yaml:
+# input_text:
+#   knob_notification_active:
+#     name: Active knob phone notification
+#     max: 255
+#     initial: ""
+#
+# This automation serializes show/removal events and matches notification IDs,
+# so clearing an older phone notification cannot clear a newer knob popup.
 alias: KDE Connect notifications on knob
-description: Forward fresh desktop notifications; never replay retained MQTT messages.
 triggers:
   - trigger: mqtt
     topic: desktop/knob/notification
@@ -7,14 +16,36 @@ conditions:
   - condition: template
     value_template: >-
       {{ trigger.payload_json is mapping
-         and trigger.payload_json.get('kind') == 'notification'
-         and 0 <= as_timestamp(now()) - (trigger.payload_json.get('timestamp', 0) | int(0)) < 30
-         and trigger.payload_json.get('message', '') | length > 0 }}
+         and trigger.payload_json.get('kind') in ['notification', 'dismiss', 'dismiss_device']
+         and trigger.payload_json.get('device_id', '') | length > 0
+         and 0 <= as_timestamp(now()) - (trigger.payload_json.get('timestamp', 0) | int(0)) < 30 }}
 actions:
-  - action: esphome.onx2424g013_dbbc54_show_message
-    data:
-      title: "{{ trigger.payload_json.title }}"
-      message: "{{ trigger.payload_json.message }}"
-      image_url: "{{ trigger.payload_json.get('image_url', '') }}"
-      timeout_seconds: "{{ trigger.payload_json.get('timeout_seconds', 30) | int(30) }}"
-mode: restart
+  - variables:
+      event: "{{ trigger.payload_json }}"
+      key: "{{ trigger.payload_json.device_id ~ '/' ~ trigger.payload_json.get('notification_id', '') }}"
+  - choose:
+      - conditions: "{{ event.kind == 'notification' and event.get('message', '') | length > 0 }}"
+        sequence:
+          - action: esphome.onx2424g013_dbbc54_show_message
+            data:
+              title: "{{ event.title }}"
+              message: "{{ event.message }}"
+              image_url: "{{ event.get('image_url', '') }}"
+              timeout_seconds: "{{ event.get('timeout_seconds', 30) | int(30) }}"
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.knob_notification_active
+            data:
+              value: "{{ key }}"
+      - conditions: >-
+          {{ (event.kind == 'dismiss' and states('input_text.knob_notification_active') == key)
+             or (event.kind == 'dismiss_device' and states('input_text.knob_notification_active').startswith(event.device_id ~ '/')) }}
+        sequence:
+          - action: esphome.onx2424g013_dbbc54_dismiss_message
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.knob_notification_active
+            data:
+              value: ""
+mode: queued
+max: 32

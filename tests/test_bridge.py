@@ -79,8 +79,8 @@ class ConfigAndRoutingTests(unittest.TestCase):
         bridge.on_signal(None, None, path, None, 'notificationPosted', parameters, None)
         bridge.on_signal(None, None, path+'/19', None, 'ready', parameters, None)
         bridge.on_signal(None, None, path, None, 'notificationRemoved', parameters, None)
-        self.assertEqual(bridge.enqueue.call_count, 2)
-        bridge.enqueue.assert_called_with('phone', '19')
+        self.assertEqual(bridge.enqueue.call_count, 3)
+        bridge.enqueue.assert_called_with('phone', '19', 'remove')
 
     def test_publish_uses_stdin_and_no_retention(self):
         bridge = object.__new__(Bridge)
