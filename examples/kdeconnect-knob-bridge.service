@@ -1,0 +1,16 @@
+[Unit]
+Description=Forward KDE Connect notifications to Home Assistant knob
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+WorkingDirectory=%h/.local/share/kdeconnect-knob-bridge
+ExecStart=/usr/bin/python3 -m knob_bridge --config %h/.config/kdeconnect-knob-bridge/config.toml
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target
