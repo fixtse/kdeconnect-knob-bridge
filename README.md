@@ -69,10 +69,10 @@ shortcut, copy `examples/kdeconnect-knob-settings.desktop` to
 `~/.local/share/applications/`. The settings page
 lets you pause sharing, choose each app, set whether new apps share by default,
 include silent notifications and choose when popups clear. The default is
-**Phone clears it or 30 seconds**: either event dismisses the popup, whichever
-happens first. Other timed options work the same way. **Until cleared, no timeout**
-is still available for notifications that should wait for phone or manual
-dismissal. Pressing the knob always dismisses the popup. Settings apply
+**30 seconds or when the phone clears it**: either event dismisses the popup,
+whichever happens first. Enter any whole number of seconds from **1 to 3600**
+in the **Timeout in seconds** field. Enter **0** to disable the timeout and wait
+for phone or manual dismissal. Pressing the knob always dismisses the popup. Settings apply
 immediately without restarting the bridge. Blocking the currently displayed app
 also clears that bridge popup.
 
