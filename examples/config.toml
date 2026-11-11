@@ -1,0 +1,31 @@
+# Find IDs: kdeconnect-cli --list-available --id-name-only
+# Pair your phone with the desktop and enable its notification sharing plugin.
+device_ids = ["REPLACE_WITH_PHONE_DEVICE_ID"]
+# Clear when the phone removes it OR after 30 seconds, whichever comes first.
+# Use 0 for phone/manual dismissal only, without a timeout.
+timeout_seconds = 30
+ignore_silent = true
+include_apps = [] # Empty means all apps, except exclude_apps.
+exclude_apps = ["KDE Connect"]
+
+[mqtt]
+topic = "desktop/knob/notification"
+# Any mosquitto_pub-compatible argv; the bridge appends -q 1 -t TOPIC -s.
+# No shell expansion. Do not include -r: notification events must not be retained.
+command = ["mosquitto_pub", "-h", "127.0.0.1"]
+# Docker alternative:
+# command = ["docker", "exec", "-i", "mosquitto", "mosquitto_pub", "-h", "127.0.0.1"]
+# Keep broker credentials in a mosquitto client config, outside this repository.
+
+[images]
+enabled = true
+bind = "192.168.1.10" # Desktop LAN address; use 127.0.0.1 only behind a proxy.
+port = 18767
+base_url = "http://192.168.1.10:18767" # Must be reachable by the ESP32.
+allowed_clients = ["192.168.1.52"] # Knob IP; empty permits any client knowing a URL.
+# KDE caches notification PNGs here; replace YOUR_USER with the desktop username.
+allowed_roots = ["/tmp/kdeconnect_YOUR_USER"]
+
+[settings]
+# Settings are always bound to loopback, separate from the LAN image endpoint.
+port = 18769

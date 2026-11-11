@@ -68,8 +68,11 @@ Open **http://127.0.0.1:18769** on the desktop running the bridge. For an app-me
 shortcut, copy `examples/kdeconnect-knob-settings.desktop` to
 `~/.local/share/applications/`. The settings page
 lets you pause sharing, choose each app, set whether new apps share by default,
-include silent notifications and change the popup duration. Choose **Until cleared**
-to keep a popup until your phone clears it or you press the knob. Settings apply
+include silent notifications and choose when popups clear. The default is
+**Phone clears it or 30 seconds**: either event dismisses the popup, whichever
+happens first. Other timed options work the same way. **Until cleared, no timeout**
+is still available for notifications that should wait for phone or manual
+dismissal. Pressing the knob always dismisses the popup. Settings apply
 immediately without restarting the bridge. Blocking the currently displayed app
 also clears that bridge popup.
 
@@ -94,6 +97,140 @@ message ID in its dismiss action: if an unrelated automation replaces a bridge
 popup, HA cannot identify that replacement and a later phone removal may clear it.
 For shared reminder displays, clear `input_text.knob_notification_active` before
 showing a non-phone reminder, or route all reminders through a single owner script.
+
+## Home Assistant automation examples
+
+Replace the ESPHome device prefix and MQTT topic with your own. The topic in the
+examples is `desktop/knob/notification`; use the same topic in `config.toml`.
+These examples use the image-capable `show_message` action, even for text-only
+popups, so `image_url` is always supplied (empty for text only).
+
+### Forward phone notifications and sync dismissal
+
+Create this helper in `configuration.yaml` (merge it into an existing
+`input_text:` section if you have one), or create a Text helper with the same
+entity ID and a maximum length of 255:
+
+```yaml
+input_text:
+  knob_notification_active:
+    name: Active knob phone notification
+    max: 255
+    initial: ""
+```
+
+Paste this automation into Home Assistant's automation YAML editor. It handles
+new notifications, individual removals and device-wide clears. The bridge's
+selected timeout is passed to the knob; the default is 30 seconds, while phone
+removal can clear it earlier. A value of `0` deliberately disables the timeout.
+An old removal is ignored if a newer notification is active.
+
+```yaml
+alias: KDE Connect notifications on knob
+triggers:
+  - trigger: mqtt
+    topic: desktop/knob/notification
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.payload_json is mapping
+         and trigger.payload_json.get('kind') in ['notification', 'dismiss', 'dismiss_device']
+         and trigger.payload_json.get('device_id', '') | length > 0
+         and 0 <= as_timestamp(now()) - (trigger.payload_json.get('timestamp', 0) | int(0)) < 30 }}
+actions:
+  - variables:
+      event: "{{ trigger.payload_json }}"
+      key: "{{ trigger.payload_json.device_id ~ '/' ~ trigger.payload_json.get('notification_id', '') }}"
+  - choose:
+      - conditions: "{{ event.kind == 'notification' and event.get('message', '') | length > 0 }}"
+        sequence:
+          - action: esphome.onx2424g013_dbbc54_show_message
+            data:
+              title: "{{ event.title }}"
+              message: "{{ event.message }}"
+              image_url: "{{ event.get('image_url', '') }}"
+              timeout_seconds: "{{ event.get('timeout_seconds', 30) | int(30) }}"
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.knob_notification_active
+            data:
+              value: "{{ key }}"
+      - conditions: >-
+          {{ (event.kind == 'dismiss' and states('input_text.knob_notification_active') == key)
+             or (event.kind == 'dismiss_device' and states('input_text.knob_notification_active').startswith(event.device_id ~ '/')) }}
+        sequence:
+          - action: esphome.onx2424g013_dbbc54_dismiss_message
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.knob_notification_active
+            data:
+              value: ""
+mode: queued
+max: 32
+```
+
+The same automation is available in
+[`examples/home-assistant-automation.yaml`](examples/home-assistant-automation.yaml).
+Back up file-managed HA configuration, run its configuration check and reload
+the affected helper/automation domains after installation.
+
+### Show a reminder with a timeout
+
+This independent automation displays a reminder after a door has been open for
+five minutes. Clear the bridge helper first so a later phone dismissal cannot
+clear this unrelated reminder. Replace the example door entity.
+
+```yaml
+alias: Door left open on knob
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.front_door
+    to: "on"
+    for: "00:05:00"
+actions:
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.knob_notification_active
+    data:
+      value: ""
+  - action: esphome.onx2424g013_dbbc54_show_message
+    data:
+      title: Front door
+      message: The front door has been open for five minutes.
+      image_url: ""
+      timeout_seconds: 30
+mode: single
+```
+
+### Show an image or keep a reminder until dismissed
+
+Use this action sequence in an automation or script. The URL must be reachable
+by the knob; a path on the desktop is not a usable image URL. Set
+`timeout_seconds: 0` to keep the reminder until the knob is pressed or an
+explicit `dismiss_message` action clears it. Set a positive value for an
+automatic timeout instead. This independent reminder has no phone notification
+to synchronize with.
+
+```yaml
+sequence:
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.knob_notification_active
+    data:
+      value: ""
+  - action: esphome.onx2424g013_dbbc54_show_message
+    data:
+      title: Reminder
+      message: Collect the parcel at the front door.
+      image_url: "http://homeassistant.local:8123/local/parcel.png"
+      timeout_seconds: 0
+```
+
+To clear a reminder from another automation, use:
+
+```yaml
+action: esphome.onx2424g013_dbbc54_dismiss_message
+```
 
 ## Images and behavior
 
