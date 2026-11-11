@@ -1,6 +1,13 @@
 {
   "name": "KDE Connect knob bridge",
-  "build": {"dockerfile": "Dockerfile"},
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "remoteUser": "vscode",
-  "postCreateCommand": "/usr/bin/python3 -m unittest discover -s tests -v"
+  "postCreateCommand": "/usr/bin/python3 -m unittest discover -s tests -v",
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  }
 }
