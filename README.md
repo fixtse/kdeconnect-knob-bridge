@@ -1,319 +1,60 @@
-# KDE Connect → Home Assistant → ESPHome knob
+# KDE Connect knob bridge (archived)
 
-Forward new phone notifications already received by your Linux desktop's KDE
-Connect to an [OpenNextion knob](https://github.com/fixtse/OpenNextion-KNOB-ESPHome).
-Uses the existing pairing; no KDE Home Assistant integration or HA API token.
-Works with Niri/Wayland/Noctalia and other Linux desktop sessions.
+**This MQTT bridge has been retired and replaced by direct KDE Connect notification receiving in Home Assistant.** This repository is archived and no longer maintained. Existing code and the [legacy instructions](LEGACY.md) remain available for reference.
 
-- Watches KDE Connect D-Bus notification-added/updated/ready signals.
-- Publishes non-retained JSON over MQTT, with app filtering and duplicate suppression.
-- Copies available notification PNGs into a bounded in-memory cache. A small HTTP
-  endpoint supplies an `image_url` the ESP32 can download.
-- Sends title, message, image_url and timeout_seconds to the knob's `show_message`.
-- Clears the matching knob popup when KDE Connect removes a phone notification.
-- Includes a local app-selection UI with saved choices and a pause switch.
-- Does not replay existing notifications on startup or dismiss notifications on the phone.
+## Use the new setup
 
-[![Import fixtse blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffixtse%2Fkdeconnect-knob-bridge%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fkdeconnect_knob_notifications.yaml)
+The replacement consists of:
 
-## Requirements
+1. **[KDE for Home Assistant - notification-enabled fork](https://github.com/fixtse/kdeforhomeassistant#notifications-from-devices)** - receives notifications directly from paired phones and computers. Choose which apps are shared independently for each device, and forward notifications and images to an ESPHome display.
+2. **[KDE Connect Rich Notifications](https://github.com/fixtse/kdeconnect-rich-notifications)** - an optional Linux desktop plugin that forwards chat avatars, website icons and screenshot previews through the existing KDE Connect connection. See its [installation guide](https://github.com/fixtse/kdeconnect-rich-notifications#add-the-plugin-to-kde-connect).
 
-Python 3.11+, PyGObject/Gio, KDE Connect running in your desktop user session,
-mosquitto_pub (or access to it in a Docker container), and Home Assistant's MQTT
-and ESPHome integrations. No pip dependencies.
+**Use the `fixtse/kdeforhomeassistant` fork for now.** Notification receiving is proposed upstream in [Radeaus/kdeforhomeassistant PR #3](https://github.com/Radeaus/kdeforhomeassistant/pull/3), which is not yet merged as of 2026-11-17. The links and blueprint below deliberately point to the fork.
 
-CachyOS/Arch packages: `python`, `python-gobject`, `kdeconnect`, `mosquitto`.
-Debian/Ubuntu: `python3`, `python3-gi`, `gir1.2-glib-2.0`, `kdeconnect`, `mosquitto-clients`.
-Install packages using your distribution package manager if missing.
+### 1. Install notification receiving in Home Assistant
 
-Pair the phone with KDE Connect, grant notification access on Android, and enable
-notification sharing. The knob needs firmware exposing `show_message(title,
-message, image_url, timeout_seconds)`; older text-only firmware is incompatible
-with the supplied automation.
+In HACS, add `https://github.com/fixtse/kdeforhomeassistant` as a custom repository with type **Integration**, install **KDE for Home Assistant**, and restart Home Assistant. Follow the [fork's setup guide](https://github.com/fixtse/kdeforhomeassistant#getting-started).
 
-## Install
+Pair each notification source **directly with Home Assistant** from the integration's sidebar. A phone paired only with a desktop is not automatically paired with Home Assistant.
 
-```sh
-git clone https://github.com/fixtse/kdeconnect-knob-bridge ~/.local/share/kdeconnect-knob-bridge
-cd ~/.local/share/kdeconnect-knob-bridge
-mkdir -p ~/.config/kdeconnect-knob-bridge ~/.config/systemd/user
-cp examples/config.toml ~/.config/kdeconnect-knob-bridge/config.toml
-kdeconnect-cli --list-available --id-name-only
-```
+- **Android:** enable notification sync for the Home Assistant pairing and grant notification access in KDE Connect.
+- **Linux desktop:** enable notification sending for the Home Assistant pairing. For rich previews, follow the Rich Notifications plugin's build and installation guide, enable **Rich notifications**, and disable the stock **Send notifications** plugin for that same receiver to prevent duplicates. The plugin currently requires a compatible Qt 6 KDE Connect installation and matching source headers; check its guide for tested versions.
+- In Home Assistant's sidebar, enable **Share notifications** for each intended source. Apps appear after their first notification. For example, allow Telegram from the desktop and block it on the phone to avoid displaying it twice.
 
-Edit your private config: phone device IDs, MQTT command/topic, desktop LAN image
-address, knob client IP and KDE cache directory. Set `images.enabled = false` for
-text only. `include_apps` and `exclude_apps` match app names exactly. Silent
-notifications are skipped by default; set `ignore_silent = false` to include them.
+Phone notifications go straight to Home Assistant; a desktop does not need to relay them. The Rich Notifications plugin is for Linux desktop sources and is not needed on the phone.
 
-In Home Assistant, create a **Text** helper with **maximum length 255** in
-**Settings → Devices & services → Helpers**. Its name can be anything.
-Click the import button above, select **fixtse · KDE Connect notifications on knob**,
-create an automation, select your Text helper and save. Only the helper is required.
-Under **Connection settings**, change the MQTT topic or knob action prefix if they
-differ from the defaults. Do not enable both the blueprint and the manual
-notification automation for the same knob.
+### 2. Connect the ESPHome display
 
-Enable the desktop service:
+Use the new [notifications-on-ESPHome-display blueprint](https://github.com/fixtse/kdeforhomeassistant/blob/main/blueprints/automation/notifications_on_esphome_display.yaml):
 
-```sh
-cp examples/kdeconnect-knob-bridge.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now kdeconnect-knob-bridge.service
-journalctl --user -u kdeconnect-knob-bridge.service -n 30
-```
+[![Import the replacement blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffixtse%2Fkdeforhomeassistant%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnotifications_on_esphome_display.yaml)
 
-Allow the knob to reach TCP 18767 on the desktop. The default service expects the
-checkout under `~/.local/share/kdeconnect-knob-bridge`; adjust WorkingDirectory
-if installed elsewhere. Run as the desktop user, not root or inside HA's container.
-Foreground: `python3 -m knob_bridge --config /path/to/config.toml`.
+Select the ESPHome display and a Text helper with a maximum length of 255. The display needs `show_message(title, message, image_url, timeout_seconds)` and `dismiss_message`, as provided by the compatible OpenNextion knob firmware.
 
-## Choose apps and sync dismissal
+If generated image URLs use an address the display cannot reach, set the blueprint's **Icon server URL** to Home Assistant's reachable LAN URL, including its port. Images are supplied by Home Assistant; the old desktop image server is no longer needed.
 
-Open **http://127.0.0.1:18769** on the desktop running the bridge. For an app-menu
-shortcut, copy `examples/kdeconnect-knob-settings.desktop` to
-`~/.local/share/applications/`. The settings page
-lets you pause sharing, choose each app, set whether new apps share by default,
-include silent notifications and choose when popups clear. The default is
-**30 seconds or when the phone clears it**: either event dismisses the popup,
-whichever happens first. Enter any whole number of seconds from **1 to 3600**
-in the **Timeout in seconds** field. Enter **0** to disable the timeout and wait
-for phone or manual dismissal. Pressing the knob always dismisses the popup. Settings apply
-immediately without restarting the bridge. Blocking the currently displayed app
-also clears that bridge popup.
+## Migrate from this bridge
 
-Apps are discovered from active KDE Connect notifications on startup and as new
-notifications arrive. Startup discovery does not forward old notifications. You can
-also add an exact app name manually. Only app names and preferences are saved in
-`preferences.json` alongside `config.toml`; notification messages and pictures are
-not stored. Once preferences exist, edit sharing choices in the UI rather than
-TOML. Settings listen only on loopback and are not exposed on the image server;
-for a remote desktop, use SSH local forwarding of TCP 18769. The page checks Host,
-Origin and a per-process request token for settings requests.
+1. Set up the integration and pair your notification sources directly with Home Assistant as described above.
+2. Disable the old MQTT notification automation for the knob in Home Assistant. Keep it disabled while configuring the replacement automation so the same notification is not displayed twice.
+3. Stop and disable this bridge's desktop service:
 
-KDE Connect sends removal signals when Android removes a notification. The bridge
-forwards those removals, and HA compares the notification ID before dismissing the
-popup: clearing an old notification cannot clear a newer one. Device-wide clears
-are matched to that phone. Merely viewing a message cannot be detected if its app
-keeps the Android notification. This is the same notification lifecycle available
-to the desktop. Pressing the knob does not dismiss anything on your phone.
+   ```sh
+   systemctl --user disable --now kdeconnect-knob-bridge.service
+   ```
 
-The HA helper tracks the most recent bridge popup. The knob currently exposes no
-message ID in its dismiss action: if an unrelated automation replaces a bridge
-popup, HA cannot identify that replacement and a later phone removal may clear it.
-For shared reminder displays, clear `input_text.knob_notification_active` before
-showing a non-phone reminder, or route all reminders through a single owner script.
+   If you run the bridge another way, stop that process and remove its startup entry instead.
+4. Import the replacement blueprint and create a new automation. It listens for `kdeforhomeassistant_notification` events instead of MQTT messages. You can reuse the existing Text helper after disabling the old automation.
+5. Select apps per source device in Home Assistant and send a fresh notification. Check its text, avatar or preview, and dismissal behavior. Different clients supply different notification images and removal events.
+6. Once the replacement works, remove the old bridge configuration and desktop image-server firewall rule if they are no longer used. Keep MQTT installed if other Home Assistant devices depend on it.
 
-## fixtse Home Assistant blueprint
+Archiving this repository does **not** stop services that you already installed. The replacement does not require this bridge, its local settings UI, MQTT forwarding, or its desktop HTTP image endpoint.
 
-[![Import fixtse blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffixtse%2Fkdeconnect-knob-bridge%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fkdeconnect_knob_notifications.yaml)
+## Historical reference
 
-[View the fixtse blueprint](blueprints/automation/kdeconnect_knob_notifications.yaml).
-The button opens the import dialog in your Home Assistant. Create one Text helper
-with a maximum length of 255, then select it in the blueprint form. You do not
-need to create scripts or edit the automation YAML. Use a different helper for
-each knob. Keep your existing desktop bridge and MQTT integration configured.
+- [Legacy installation, settings and development instructions](LEGACY.md)
+- [Old MQTT blueprint](blueprints/automation/kdeconnect_knob_notifications.yaml), retained for existing installations
+- [Replacement integration and per-device app controls](https://github.com/fixtse/kdeforhomeassistant#notifications-from-devices)
+- [Rich Notifications plugin and installation guide](https://github.com/fixtse/kdeconnect-rich-notifications)
 
-The optional **Connection settings** section defaults to MQTT topic
-`desktop/knob/notification` and knob action prefix `onx2424g013_dbbc54`.
-Set these to your own values if needed; the optional phone ID restricts which
-phone can trigger the automation. Your desktop settings page continues to control
-app sharing and the exact timeout in seconds. Phone removal and timeout work
-together, and clearing an older notification never clears a newer bridge popup.
-
-For a YAML-managed installation, this is the complete automation instance after
-importing the blueprint (replace the helper and connection settings as needed):
-
-```yaml
-alias: Phone notifications on knob
-use_blueprint:
-  path: fixtse/kdeconnect_knob_notifications.yaml
-  input:
-    active_notification: input_text.knob_notification_active
-    mqtt_topic: desktop/knob/notification
-    knob_prefix: onx2424g013_dbbc54
-```
-
-If the import button cannot find your instance, set it at
-[My Home Assistant](https://my.home-assistant.io/) or import the blueprint's GitHub
-file URL under **Settings → Automations & scenes → Blueprints → Import blueprint**.
-Use **Re-import blueprint** to fetch future updates. Disable the old manual
-notification automation when switching, so each event is handled once.
-
-## Home Assistant automation examples
-
-Replace the ESPHome device prefix and MQTT topic with your own. The topic in the
-examples is `desktop/knob/notification`; use the same topic in `config.toml`.
-Use the blueprint above for the easiest setup; the manual automation below is an
-alternative, not a second automation to enable alongside it. These examples use the image-capable `show_message` action, even for text-only
-popups, so `image_url` is always supplied (empty for text only).
-
-### Manual alternative: forward phone notifications and sync dismissal
-
-Create this helper in `configuration.yaml` (merge it into an existing
-`input_text:` section if you have one), or create a Text helper with the same
-entity ID and a maximum length of 255:
-
-```yaml
-input_text:
-  knob_notification_active:
-    name: Active knob phone notification
-    max: 255
-    initial: ""
-```
-
-Paste this automation into Home Assistant's automation YAML editor. It handles
-new notifications, individual removals and device-wide clears. The bridge's
-selected timeout is passed to the knob; the default is 30 seconds, while phone
-removal can clear it earlier. A value of `0` deliberately disables the timeout.
-An old removal is ignored if a newer notification is active.
-
-```yaml
-alias: KDE Connect notifications on knob
-triggers:
-  - trigger: mqtt
-    topic: desktop/knob/notification
-conditions:
-  - condition: template
-    value_template: >-
-      {{ trigger.payload_json is mapping
-         and trigger.payload_json.get('kind') in ['notification', 'dismiss', 'dismiss_device']
-         and trigger.payload_json.get('device_id', '') | length > 0
-         and 0 <= as_timestamp(now()) - (trigger.payload_json.get('timestamp', 0) | int(0)) < 30 }}
-actions:
-  - variables:
-      event: "{{ trigger.payload_json }}"
-      key: "{{ trigger.payload_json.device_id ~ '/' ~ trigger.payload_json.get('notification_id', '') }}"
-  - choose:
-      - conditions: "{{ event.kind == 'notification' and event.get('message', '') | length > 0 }}"
-        sequence:
-          - action: esphome.onx2424g013_dbbc54_show_message
-            data:
-              title: "{{ event.title }}"
-              message: "{{ event.message }}"
-              image_url: "{{ event.get('image_url', '') }}"
-              timeout_seconds: "{{ event.get('timeout_seconds', 30) | int(30) }}"
-          - action: input_text.set_value
-            target:
-              entity_id: input_text.knob_notification_active
-            data:
-              value: "{{ key }}"
-      - conditions: >-
-          {{ (event.kind == 'dismiss' and states('input_text.knob_notification_active') == key)
-             or (event.kind == 'dismiss_device' and states('input_text.knob_notification_active').startswith(event.device_id ~ '/')) }}
-        sequence:
-          - action: esphome.onx2424g013_dbbc54_dismiss_message
-          - action: input_text.set_value
-            target:
-              entity_id: input_text.knob_notification_active
-            data:
-              value: ""
-mode: queued
-max: 32
-```
-
-The same automation is available in
-[`examples/home-assistant-automation.yaml`](examples/home-assistant-automation.yaml).
-Back up file-managed HA configuration, run its configuration check and reload
-the affected helper/automation domains after installation.
-
-### Show a reminder with a timeout
-
-This independent automation displays a reminder after a door has been open for
-five minutes. Clear the bridge helper first so a later phone dismissal cannot
-clear this unrelated reminder. Replace the example door entity.
-
-```yaml
-alias: Door left open on knob
-triggers:
-  - trigger: state
-    entity_id: binary_sensor.front_door
-    to: "on"
-    for: "00:05:00"
-actions:
-  - action: input_text.set_value
-    target:
-      entity_id: input_text.knob_notification_active
-    data:
-      value: ""
-  - action: esphome.onx2424g013_dbbc54_show_message
-    data:
-      title: Front door
-      message: The front door has been open for five minutes.
-      image_url: ""
-      timeout_seconds: 30
-mode: single
-```
-
-### Show an image or keep a reminder until dismissed
-
-Use this action sequence in an automation or script. The URL must be reachable
-by the knob; a path on the desktop is not a usable image URL. Set
-`timeout_seconds: 0` to keep the reminder until the knob is pressed or an
-explicit `dismiss_message` action clears it. Set a positive value for an
-automatic timeout instead. This independent reminder has no phone notification
-to synchronize with.
-
-```yaml
-sequence:
-  - action: input_text.set_value
-    target:
-      entity_id: input_text.knob_notification_active
-    data:
-      value: ""
-  - action: esphome.onx2424g013_dbbc54_show_message
-    data:
-      title: Reminder
-      message: Collect the parcel at the front door.
-      image_url: "http://homeassistant.local:8123/local/parcel.png"
-      timeout_seconds: 0
-```
-
-To clear a reminder from another automation, use:
-
-```yaml
-action: esphome.onx2424g013_dbbc54_dismiss_message
-```
-
-## Images and behavior
-
-KDE Connect exposes `iconPath`: this may contain an app icon, avatar or other image,
-not necessarily an attached photo. Only PNGs inside configured cache roots are
-accepted (512 KiB and 2048×2048 maximum). The knob does the final resize; its current
-notification image area is 112×64. Unsupported/missing images fall back to text.
-Image URLs use random tokens, expire after 15 minutes and disappear on restart;
-at most 32 images are held. Notification queues and duplicate tracking are bounded.
-
-The image HTTP endpoint has no login and uses plain LAN HTTP unless you place it
-behind an HTTPS proxy. Restrict `allowed_clients` to the knob and keep the port off
-the public Internet. MQTT carries notification content: use a trusted broker and
-broker access controls. Keep passwords in external client configuration. Neither
-notification text nor image URL tokens are logged. No notification data is written
-to disk by the bridge.
-
-The knob retains its own rules: press dismisses, turn scrolls, timers take priority,
-and only the newest notification is kept. HA ignores messages older than 30 seconds.
-The bridge forwards only new signals; KDE may resend notifications after reconnecting,
-and identical updates are suppressed for two minutes within each bridge process.
-Failures are logged without content and do not trigger unbounded retries. A later
-KDE notification update can retry failed MQTT publication.
-
-## Development
-
-Open in GitHub Codespaces or a devcontainer. The Dockerfile supplies Python, Gio,
-a session bus and MQTT clients. No application ports are forwarded automatically.
-
-```sh
-/usr/bin/python3 -m unittest discover -s tests -v
-/usr/bin/python3 -m compileall -q knob_bridge tests
-```
-
-Tests cover UTF-8 clipping, filters, deduplication, bounded/expiring image paths,
-D-Bus signal routing, removal identity matching, persistent app preferences, settings
-HTTP authorization, config validation and non-retained MQTT publication. Real
-phone delivery needs a desktop KDE Connect session; Codespaces cannot receive
-your phone's desktop session signals.
-
-## License
-
-MIT. This is an independent bridge, not an official KDE or Home Assistant project.
+This archived bridge remains MIT-licensed. The replacement projects have their own licenses and documentation.
